@@ -3,7 +3,7 @@
 A production-grade, highly secure, and resilient web infrastructure deployed on AWS from first principles. This project demonstrates containerized application management, automated infrastructure recovery via shell automation, tight identity-based security perimeters, and active log stream parsing for real-time operations alerting.
 
 ## Architecture Diagram
-![Diagram](6fed7643-80ff-46e9-a57c-67e74a1ff21e.png)
+![Diagram](selfhealing-automated-web-app-deployment-system-artichture-diagrma.png)
 
 ---
 
