@@ -18,7 +18,7 @@ No operator action required for container-level failures.
 
 ## Architecture
 
-![Architecture Diagram](selfhealing-automated-web-app-deployment-system-architecture-diagram.png)
+![Architecture Diagram](architecture-diagram.png)
 
 ### Layer 1 — Network & Data Isolation
 
