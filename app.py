@@ -43,7 +43,7 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Flask app by Prathmesh-b</title>
+        <title>Flask/Postgresql app by Prathmesh-b</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f6f9; color: #333; }
             .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
