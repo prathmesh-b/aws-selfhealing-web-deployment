@@ -99,7 +99,7 @@ These are the two real issues I hit during build not theoretical edge cases.
 
 ## Known Limitations
 
-- Self-healing works at the **container level only**. If the EC2 host itself goes down, there is no automatic recovery — this would require an Auto Scaling Group with a launch template.
+- Self-healing works at the **container level only**. If the EC2 host itself goes down, there is no automatic recovery, this would require an Auto Scaling Group with a launch template.
 - Health check runs every 5 minutes (cron limitation). A tighter loop would need a persistent process like a systemd service or a dedicated monitoring tool.
 - No IaC (Terraform/CloudFormation) — infrastructure was provisioned manually via AWS Console. Adding IaC is the next planned improvement.
 
