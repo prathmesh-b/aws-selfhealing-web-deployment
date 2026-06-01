@@ -1,6 +1,6 @@
 # AWS Self-Healing Web Deployment
 
-A multi-tier web infrastructure on AWS built to automatically detect and recover from application failures — without manual intervention. Designed from first principles with network isolation, container automation, and real-time alerting.
+A multi-tier web infrastructure on AWS built to automatically detect and recover from application failures without manual intervention. Designed with network isolation, container automation, and real-time alerting focused.
 
 ---
 
@@ -60,7 +60,7 @@ fi
 
 ## Engineering Problems Solved
 
-These are the two real issues I hit during build — not theoretical edge cases.
+These are the two real issues I hit during build not theoretical edge cases.
 
 ### Problem 1: SNS emails were silently dropping
 
