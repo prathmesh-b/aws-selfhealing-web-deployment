@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ######################
-# Author : Prathmesh
+# Author : Prathmesh-b
 ######################
 
 
