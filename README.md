@@ -1,59 +1,43 @@
-# Automated Multi-Tier Cloud Deployment with Self-Healing Architecture & Observability
+# AWS Self-Healing Web Deployment
 
-A production-grade, highly secure, and resilient web infrastructure deployed on AWS from first principles. This project demonstrates containerized application management, automated infrastructure recovery via shell automation, tight identity-based security perimeters, and active log stream parsing for real-time operations alerting.
-
-## Architecture Diagram
-![Diagram](selfhealing-automated-web-app-deployment-system-artichture-diagrma.png)
+A multi-tier web infrastructure on AWS built to automatically detect and recover from application failures — without manual intervention. Designed from first principles with network isolation, container automation, and real-time alerting.
 
 ---
 
-## 
+## What This Does
 
-## 🏛️ System Architecture
+When the Flask web application crashes or becomes unreachable, the system:
+1. Detects the failure within 5 minutes via a cron-driven health check
+2. Automatically restarts the Docker container (recovery in under 3 seconds)
+3. Logs the event to CloudWatch and triggers an SNS email alert
+4. Sends a second "OK" email once the system confirms recovery
 
-The infrastructure consists of a multi-tier decoupled system engineered to minimize blast radiuses and enforce stateful security boundaries.
-
-
-### 1. Network & Data Isolation Layer
-* **VPC Layout:** Configured a custom VPC split across dedicated public and private subnets.
-* **The Web Tier:** A Python/Flask web engine containerized via **Docker Compose** on an Ubuntu **EC2 Web Server Host**, assigned to the public subnet to ingest external internet traffic.
-* **The Data Tier:** An **RDS PostgreSQL Database** deployed securely inside private subnets with zero internet route mapping.
-* **Stateful Firewalls:** Enforced least-privilege protection using AWS **Security Groups** instead of broad subnet-level NACLs. The database group (`db-sg`) drops all incoming connections on port 5432 *unless* they explicitly originate from the identity of the web group (`web-sg`).
-
-### 2. Automated Edge-Probing & Self-Healing Loop
-* **The Evaluator:** A Linux **Cron Job** executes a custom background automation script (`health_check.sh`) on the host every 5 minutes.
-* **Remediation Script:** The script leverages an aggressive local network probe to check site health. If the container or database disconnect throws an HTTP network failure or timeout (`000`), the engine appends an `ALERT` flag to local log files and instantly triggers a `docker compose restart web-app` process. This fixes local daemon crashes in under 3 seconds without operator intervention.
-
-### 3. Observability & Alarm Notification System
-* **Log Ingestion:** The native **AWS CloudWatch Agent** tails the local system log file, streaming infrastructure metrics up to an AWS **CloudWatch Log Group** in real time.
-* **Pattern Matching:** Built a custom CloudWatch **Metric Filter** targeting the string `ALERT`. When found, it increments a custom metric counter (`AppFailureCount`).
-* **Closed-Loop Alerting:** Configured a dual-state **CloudWatch Alarm** mapped to an **Amazon SNS Topic**. Operations teams receive structured emails upon state transitions: an `ALARM` notice when a breach occurs, and an automated `OK` confirmation email the moment the self-healing engine restores system stability.
+No operator action required for container-level failures.
 
 ---
 
-## 🛠️ Engineering Challenges & Real-World Troubleshooting
+## Architecture
 
-Building this deployment from scratch highlighted several key cloud-infrastructure integration hurdles:
+![Architecture Diagram](selfhealing-automated-web-app-deployment-system-architecture-diagram.png)
 
-### 1. Silent SNS Notification Drop via Default SSE
-* **Issue:** Application logs streamed smoothly to CloudWatch and alarms triggered red, but email dispatches were dropping silently.
-* **Root Cause:** Default Server-Side Encryption (SSE) policies on the SNS topic were restricting the CloudWatch Service Principal from executing `sns:Publish`.
-* **Resolution:** Corrected the encryption access control pathways, explicitly authorizing the cloud monitor service principal to clear the message queue.
+### Layer 1 — Network & Data Isolation
 
-### 2. Sparse-Data Metric Lockout Loop
-* **Issue:** Because the local Bash script was self-healing the Docker container so fast (under 3 seconds), CloudWatch recorded only a single minute slice anomaly before data dropped back to null. The alarm got stuck in an "Insufficient Data" state, freezing the dashboard status.
-* **Root Cause:** A sparse data collection pattern without a baseline metric fallback.
-* **Resolution:** Refactored the Metric Filter to pass an explicit default value of `0` during clean execution intervals. This forced CloudWatch to draw a continuous evaluation timeline, instantly enabling real-time `ALARM` ➔ `OK` status recoveries.
+- Custom VPC with separate public and private subnets
+- EC2 instance (Ubuntu) in the public subnet hosts the Flask app in a Docker container
+- RDS PostgreSQL placed in a private subnet with no internet route — only reachable from the app tier
+- Security Groups configured with identity-based rules: the database security group (`db-sg`) allows port 5432 only from `web-sg`, not from any IP range. This means even if another EC2 exists in the same VPC, it cannot reach the database unless it carries the web security group identity.
 
----
+> Why Security Groups over NACLs? NACLs are stateless and subnet-wide. Security Groups are stateful and instance-specific, which gives tighter, more precise control at the resource level.
 
-## 📂 Core Automation Script Reference
+### Layer 2 — Health Check & Self-Healing Loop
 
-### Local Container Triage & Recovery Script (`health_check.sh`)
+A cron job runs `health_check.sh` every 5 minutes on the EC2 host. The script sends a `curl` request to `localhost:80` and checks the HTTP response code:
+
+- `200` → logs an OK entry
+- Anything else (timeout, `000`, 5xx) → logs an `ALERT` entry and runs `docker compose restart web-app`
+
 ```bash
 #!/bin/bash
-# Localized edge-probe automation script
-
 LOG_FILE="/home/ubuntu/app/health.log"
 STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:80)
 
@@ -61,7 +45,61 @@ if [ "$STATUS_CODE" -eq 200 ]; then
     echo "[$(date "+%Y-%m-%d %H:%M:%S")] OK | 200 | Application is healthy" >> "$LOG_FILE"
 else
     echo "[$(date "+%Y-%m-%d %H:%M:%S")] ALERT | $STATUS_CODE | Application check failed - restarting" >> "$LOG_FILE"
-    
-    # Automated Remediation Action
     cd /home/ubuntu/app && /usr/local/bin/docker-compose restart web-app
 fi
+```
+
+### Layer 3 — Observability & Alerting
+
+- CloudWatch Agent tails `health.log` and streams entries to a CloudWatch Log Group in real time
+- A Metric Filter scans for the string `ALERT` and increments a custom metric (`AppFailureCount`)
+- A CloudWatch Alarm monitors this metric and publishes to an SNS topic on state changes
+- Two emails are sent: one when the alarm triggers (`ALARM` state), one when the system recovers (`OK` state)
+
+---
+
+## Engineering Problems Solved
+
+These are the two real issues I hit during build — not theoretical edge cases.
+
+### Problem 1: SNS emails were silently dropping
+
+**Symptom:** Logs were streaming to CloudWatch correctly and alarms were triggering, but no emails arrived.
+
+**Root cause:** The SNS topic had default Server-Side Encryption (SSE) enabled. This blocked the CloudWatch service principal from calling `sns:Publish` because the KMS key policy did not grant that principal access.
+
+**Fix:** Updated the KMS key policy to explicitly allow the CloudWatch service principal (`cloudwatch.amazonaws.com`) to use the key for publish operations. This is a non-obvious IAM/KMS interaction — the SNS console shows no error, and CloudWatch shows the alarm as firing correctly, which makes it hard to diagnose.
+
+---
+
+### Problem 2: CloudWatch alarm stuck in "Insufficient Data"
+
+**Symptom:** The alarm would briefly go red, then immediately freeze in `Insufficient Data` instead of recovering to `OK`.
+
+**Root cause:** The Docker container was restarting so fast (under 3 seconds) that only a single 1-minute data point was recorded before the metric went silent. CloudWatch treats missing data points as `null` by default, which causes the alarm to enter `Insufficient Data` rather than `OK`.
+
+**Fix:** Configured the Metric Filter to emit a value of `0` when no `ALERT` string is found in the log stream. This creates a continuous baseline metric even during healthy periods, so CloudWatch always has data to evaluate and can correctly transition between `ALARM` and `OK` states.
+
+---
+
+## Tech Stack
+
+| Component | Service / Tool |
+|---|---|
+| Compute | AWS EC2 (Ubuntu 22.04) |
+| Application | Python / Flask |
+| Containerization | Docker, Docker Compose |
+| Database | AWS RDS (PostgreSQL), private subnet |
+| Networking | VPC, Security Groups, Internet Gateway |
+| Monitoring | AWS CloudWatch Agent, Log Groups, Metric Filters |
+| Alerting | CloudWatch Alarms, Amazon SNS |
+| Automation | Bash, Linux Cron |
+
+---
+
+## Known Limitations
+
+- Self-healing works at the **container level only**. If the EC2 host itself goes down, there is no automatic recovery — this would require an Auto Scaling Group with a launch template.
+- Health check runs every 5 minutes (cron limitation). A tighter loop would need a persistent process like a systemd service or a dedicated monitoring tool.
+- No IaC (Terraform/CloudFormation) — infrastructure was provisioned manually via AWS Console. Adding IaC is the next planned improvement.
+
